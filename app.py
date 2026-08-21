@@ -526,25 +526,28 @@ def generate_rag_answer(request: GenerateRequest):
 async def generate_voice_rag_answer(
     file: UploadFile = File(...),
     top_k: int = Form(5),
+    provider: str = Form("auto"),
+    model: str = Form("saarika:v2"),
 ):
     """
     End-to-End Voice RAG Pipeline Endpoint:
-    Audio Input -> Sarvam STT -> Pre-flight Check -> FAISS+BM25 Hybrid Retrieval -> Groq LLM -> Post-flight Check
+    Audio Input -> STT (Groq Whisper Turbo / Sarvam saarika:v2 / ElevenLabs) -> Pre-flight Check -> FAISS+BM25 -> Groq LLM
     """
     t_start = time.perf_counter()
 
-    # 1. Audio STT via Sarvam AI with automatic ElevenLabs fallback
+    # 1. Audio STT via selected provider (Whisper Turbo / Sarvam saarika:v2 / ElevenLabs)
     t_stt_start = time.perf_counter()
     audio_bytes = await file.read()
     try:
-        transcript, lang, _, provider = transcribe_audio_resilient(
+        transcript, lang, _, used_provider = transcribe_audio_resilient(
             file_bytes=audio_bytes,
             filename=file.filename or "audio.wav",
+            provider=provider,
         )
     except Exception as e:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
-            content={"guardrail_passed": False, "reason": f"STT Transcription Failed (Sarvam + ElevenLabs): {str(e)}"},
+            content={"guardrail_passed": False, "reason": f"STT Transcription Failed ({provider}): {str(e)}"},
         )
     t_stt_end = time.perf_counter()
     stt_ms = (t_stt_end - t_stt_start) * 1000.0
@@ -590,8 +593,12 @@ def query_endpoint_alias(request: GenerateRequest):
 
 
 @app.post("/voice-query", response_model=VoiceGenerateResponse, responses={400: {"model": GuardrailErrorResponse}})
-async def voice_query_endpoint_alias(file: UploadFile = File(...), top_k: int = Form(5)):
-    return await generate_voice_rag_answer(file=file, top_k=top_k)
+async def voice_query_endpoint_alias(
+    file: UploadFile = File(...),
+    top_k: int = Form(5),
+    provider: str = Form("auto"),
+):
+    return await generate_voice_rag_answer(file=file, top_k=top_k, provider=provider)
 
 
 # -----------------------------------------------------------------------------

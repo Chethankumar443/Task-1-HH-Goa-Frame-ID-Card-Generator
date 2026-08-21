@@ -2,21 +2,21 @@
   "num_queries_evaluated": 100,
   "guardrail_pass_rate_pct": 70.0,
   "retrieval_latency_ms": {
-    "P50": 0.35,
-    "P70": 0.42,
-    "P100": 0.55,
-    "mean": 0.29
+    "P50": 0.34,
+    "P70": 0.43,
+    "P100": 0.98,
+    "mean": 0.35
   },
   "generation_latency_ms": {
-    "P50": 135.01,
-    "P70": 142.75,
-    "P100": 156.14,
-    "mean": 98.72
+    "P50": 128.61,
+    "P70": 139.85,
+    "P100": 166.97,
+    "mean": 98.26
   },
   "total_pipeline_latency_ms": {
     "P50": 0.0,
-    "P70": 13.36,
-    "P100": 170.91,
-    "mean": 15.26
+    "P70": 13.13,
+    "P100": 192.96,
+    "mean": 16.04
   }
 }

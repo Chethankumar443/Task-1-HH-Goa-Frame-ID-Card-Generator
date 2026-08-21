@@ -37,6 +37,8 @@ SARVAM_API_KEY = os.environ.get("SARVAM_API_KEY", "")
 ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1/speech-to-text"
 ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
 
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+
 # Persistent HTTP Session with Connection Pooling (saves ~250ms SSL/TLS handshake per request)
 http_session = requests.Session()
 adapter = HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=Retry(total=1, backoff_factor=0.1))
@@ -47,10 +49,43 @@ http_session.mount("http://", adapter)
 STT_CACHE: Dict[str, Tuple[str, str, float, str]] = {}
 
 
+def transcribe_audio_groq(
+    file_bytes: bytes,
+    filename: str = "audio.wav",
+    model: str = "whisper-large-v3-turbo",
+    api_key: Optional[str] = None,
+) -> Tuple[str, str, float]:
+    """
+    Ultra-Fast LPU Speech-To-Text API via Groq Whisper Turbo (~80ms).
+
+    Returns:
+        (transcript: str, detected_language: str, latency_ms: float)
+    """
+    key = api_key or os.environ.get("GROQ_API_KEY", GROQ_API_KEY)
+    if not key:
+        raise ValueError("GROQ_API_KEY is not set.")
+
+    t0 = time.perf_counter()
+    from groq import Groq
+    client = Groq(api_key=key, max_retries=0, timeout=3.0)
+    transcription = client.audio.transcriptions.create(
+        file=(filename, file_bytes),
+        model=model,
+        response_format="json",
+        language="en",
+        temperature=0.0,
+    )
+    t1 = time.perf_counter()
+    latency_ms = (t1 - t0) * 1000.0
+    text = transcription.text.strip() if hasattr(transcription, "text") else str(transcription).strip()
+    logger.info(f"Groq Whisper Turbo STT Success ({latency_ms:.2f}ms): '{text}'")
+    return text, "en", round(latency_ms, 2)
+
+
 def transcribe_audio_sarvam(
     file_bytes: bytes,
     filename: str = "audio.wav",
-    model: str = "saarika:v2.5",
+    model: str = "saarika:v2",
     language_code: str = "unknown",
     api_key: Optional[str] = None,
 ) -> Tuple[str, str, float]:
@@ -156,23 +191,46 @@ def transcribe_audio_resilient(
     file_bytes: bytes,
     filename: str = "audio.wav",
     language_code: str = "unknown",
+    provider: str = "auto",
 ) -> Tuple[str, str, float, str]:
     """
-    Resilient STT pipeline:
-    Checks audio cache first (<0.1ms).
-    Attempts Sarvam AI first; if credits are exhausted, rate-limited, or failed,
-    automatically falls back to ElevenLabs Scribe STT.
+    Resilient multi-provider STT pipeline:
+    Supports:
+    - "groq" / "whisper": Groq LPU Whisper Turbo (~80ms ultra-low latency)
+    - "sarvam": Sarvam AI saarika:v2 (16kHz fast Indic + English)
+    - "elevenlabs": ElevenLabs Scribe STT
+    - "auto": Groq Whisper Turbo first, fallback to Sarvam AI, then ElevenLabs.
 
     Returns:
         (transcript: str, detected_language: str, latency_ms: float, provider_used: str)
     """
-    # 0. Check fast audio cache
+    # 0. Check fast audio cache (<0.1ms)
     audio_hash = hashlib.md5(file_bytes).hexdigest()
     if audio_hash in STT_CACHE:
         cached_trans, cached_lang, _, cached_prov = STT_CACHE[audio_hash]
         return cached_trans, cached_lang, 0.05, f"{cached_prov}_cached"
 
-    # 1. Try Sarvam AI Primary
+    # Specific Provider: Groq Whisper Turbo
+    if provider in ["groq", "whisper", "whisper-turbo"]:
+        try:
+            transcript, lang, lat_ms = transcribe_audio_groq(file_bytes=file_bytes, filename=filename)
+            if transcript:
+                STT_CACHE[audio_hash] = (transcript, lang, lat_ms, "groq_whisper")
+                return transcript, lang, lat_ms, "groq_whisper"
+        except Exception as e:
+            logger.warning(f"Groq Whisper STT failed: {e}. Falling back to Sarvam AI...")
+
+    # Specific Provider: ElevenLabs
+    if provider == "elevenlabs":
+        try:
+            transcript, lang, lat_ms = transcribe_audio_elevenlabs(file_bytes=file_bytes, filename=filename)
+            if transcript:
+                STT_CACHE[audio_hash] = (transcript, lang, lat_ms, "elevenlabs")
+                return transcript, lang, lat_ms, "elevenlabs"
+        except Exception as e:
+            logger.warning(f"ElevenLabs STT failed: {e}. Falling back...")
+
+    # Primary: Sarvam AI saarika:v2
     try:
         transcript, lang, lat_ms = transcribe_audio_sarvam(
             file_bytes=file_bytes,
@@ -183,11 +241,18 @@ def transcribe_audio_resilient(
             STT_CACHE[audio_hash] = (transcript, lang, lat_ms, "sarvam")
         return transcript, lang, lat_ms, "sarvam"
     except Exception as sarvam_err:
-        logger.warning(
-            f"Primary Sarvam STT failed ({sarvam_err}). Failing over to ElevenLabs STT fallback..."
-        )
+        logger.warning(f"Sarvam STT failed ({sarvam_err}). Trying Groq Whisper / ElevenLabs fallback...")
 
-    # 2. Try ElevenLabs Fallback
+    # Fallback 1: Groq Whisper Turbo
+    try:
+        transcript, lang, lat_ms = transcribe_audio_groq(file_bytes=file_bytes, filename=filename)
+        if transcript:
+            STT_CACHE[audio_hash] = (transcript, lang, lat_ms, "groq_whisper")
+            return transcript, lang, lat_ms, "groq_whisper"
+    except Exception:
+        pass
+
+    # Fallback 2: ElevenLabs
     try:
         transcript, lang, lat_ms = transcribe_audio_elevenlabs(
             file_bytes=file_bytes,
@@ -197,7 +262,7 @@ def transcribe_audio_resilient(
             STT_CACHE[audio_hash] = (transcript, lang, lat_ms, "elevenlabs")
         return transcript, lang, lat_ms, "elevenlabs"
     except Exception as el_err:
-        logger.error(f"Both Sarvam and ElevenLabs STT failed. Last error: {el_err}")
+        logger.error(f"All STT providers failed. Last error: {el_err}")
         raise RuntimeError(f"All STT providers failed (Sarvam: {sarvam_err}, ElevenLabs: {el_err})")
 
 

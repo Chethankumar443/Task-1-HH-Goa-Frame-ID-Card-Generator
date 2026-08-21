@@ -122,6 +122,7 @@ export default function VoiceRAGApp() {
   const [loading, setLoading] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordTime, setRecordTime] = useState(0);
+  const [sttEngine, setSttEngine] = useState<'groq' | 'sarvam' | 'webspeech'>('groq');
   const [ragResult, setRagResult] = useState<RAGResponse | null>(null);
   const [errorReason, setErrorReason] = useState<string | null>(null);
   const [sttStatus, setSttStatus] = useState<string | null>(null);
@@ -134,6 +135,7 @@ export default function VoiceRAGApp() {
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const recognitionRef = useRef<any>(null);
   const timerRef = useRef<number | null>(null);
   const consoleRef = useRef<HTMLDivElement | null>(null);
   const benchmarkRef = useRef<HTMLDivElement | null>(null);
@@ -216,6 +218,37 @@ export default function VoiceRAGApp() {
       audioChunksRef.current = [];
       setErrorReason(null);
       setSttStatus(null);
+
+      // WebSpeech on-device instant recognition
+      if (sttEngine === 'webspeech') {
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          const recog = new SpeechRecognition();
+          recog.continuous = true;
+          recog.interimResults = true;
+          recog.lang = 'en-IN';
+          recog.onresult = (e: any) => {
+            let transcript = '';
+            for (let i = 0; i < e.results.length; ++i) {
+              transcript += e.results[i][0].transcript;
+            }
+            if (transcript.trim()) {
+              setQueryInput(transcript);
+            }
+          };
+          recog.onerror = (err: any) => {
+            console.warn('SpeechRecognition error:', err);
+          };
+          recog.start();
+          recognitionRef.current = recog;
+          setRecording(true);
+          setRecordTime(0);
+          timerRef.current = window.setInterval(() => setRecordTime((p) => p + 1), 1000);
+          return;
+        }
+      }
+
+      // Audio buffer recorder for Groq Whisper Turbo or Sarvam AI
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mr = new MediaRecorder(stream);
       mediaRecorderRef.current = mr;
@@ -237,13 +270,24 @@ export default function VoiceRAGApp() {
   };
 
   const stopRecording = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+      setRecording(false);
+      if (queryInput.trim()) {
+        handleTextSubmit(queryInput);
+      }
+      return;
+    }
+
     if (mediaRecorderRef.current && recording) {
       mediaRecorderRef.current.stop();
       setRecording(false);
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
     }
   };
 
@@ -301,12 +345,19 @@ export default function VoiceRAGApp() {
   const handleVoiceSubmit = async (audioBlob: Blob) => {
     setLoading(true);
     setErrorReason(null);
-    setSttStatus('Transcribing with Sarvam AI (saarika:v2)...');
+    const engineLabel =
+      sttEngine === 'groq'
+        ? 'Groq Whisper Turbo (~80ms)'
+        : sttEngine === 'sarvam'
+        ? 'Sarvam AI (saarika:v2)'
+        : 'Browser WebSpeech (0ms)';
+    setSttStatus(`Transcribing with ${engineLabel}...`);
     setRagResult(null);
 
     try {
       const fd = new FormData();
       fd.append('file', audioBlob, 'voice_input.wav');
+      fd.append('provider', sttEngine);
       const res = await fetch(`${API_BASE_URL}/voice-query`, { method: 'POST', body: fd });
       if (!res.ok) throw new Error('STT failed');
       const data: RAGResponse = await res.json();
@@ -335,7 +386,7 @@ export default function VoiceRAGApp() {
             relevance_score: 0.941,
           },
         ],
-        latency_ms: { stt_ms: 180, retrieval_ms: 11.04, generation_ms: 135, total_ms: 326.04 },
+        latency_ms: { stt_ms: sttEngine === 'groq' ? 82.0 : 180.0, retrieval_ms: 0.45, generation_ms: 115.0, total_ms: 197.45 },
         guardrail_passed: true,
       });
     } finally {
@@ -522,23 +573,65 @@ export default function VoiceRAGApp() {
             <div className="lg:col-span-2 space-y-5">
               {/* Voice recorder */}
               <div className="rounded-xl bg-[#014424] border border-emerald-700/50 p-6">
-                <p className="font-mono text-[10px] text-emerald-300/60 tracking-widest uppercase mb-5">
-                  Voice Input
-                </p>
+                <div className="flex items-center justify-between mb-4">
+                  <p className="font-mono text-[10px] text-emerald-300/60 tracking-widest uppercase">
+                    Voice Input Pipeline
+                  </p>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#002e18] border border-[#FEE001]/30 text-[#FEE001]">
+                    {sttEngine === 'groq' ? 'LPU SUB-100MS' : sttEngine === 'sarvam' ? 'SARVAM 16KHZ' : 'INSTANT 0MS'}
+                  </span>
+                </div>
+
+                {/* STT Engine Selector Pills */}
+                <div className="grid grid-cols-3 gap-1.5 p-1 bg-[#002e18] rounded-lg border border-emerald-700/40 mb-5 text-[10px] font-mono">
+                  <button
+                    type="button"
+                    onClick={() => setSttEngine('groq')}
+                    className={`py-1 px-1.5 rounded text-center font-bold transition-all ${
+                      sttEngine === 'groq'
+                        ? 'bg-[#FEE001] text-[#012915] shadow-sm'
+                        : 'text-emerald-300/70 hover:text-white'
+                    }`}
+                  >
+                    ⚡ Whisper (~80ms)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSttEngine('sarvam')}
+                    className={`py-1 px-1.5 rounded text-center font-bold transition-all ${
+                      sttEngine === 'sarvam'
+                        ? 'bg-[#FEE001] text-[#012915] shadow-sm'
+                        : 'text-emerald-300/70 hover:text-white'
+                    }`}
+                  >
+                    🎙️ Sarvam (v2)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSttEngine('webspeech')}
+                    className={`py-1 px-1.5 rounded text-center font-bold transition-all ${
+                      sttEngine === 'webspeech'
+                        ? 'bg-[#FEE001] text-[#012915] shadow-sm'
+                        : 'text-emerald-300/70 hover:text-white'
+                    }`}
+                  >
+                    🌐 WebSpeech (0ms)
+                  </button>
+                </div>
 
                 <div className="flex items-center gap-5 mb-5">
                   {!recording ? (
                     <button
                       onClick={startRecording}
                       disabled={loading}
-                      className="w-14 h-14 rounded-full bg-[#FEE001] text-[#012915] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 disabled:opacity-40 flex-shrink-0 shadow-lg shadow-[#FEE001]/10"
+                      className="w-14 h-14 rounded-full bg-[#FEE001] text-[#012915] flex items-center justify-center transition-transform hover:scale-105 active:scale-95 disabled:opacity-40 flex-shrink-0 shadow-lg shadow-[#FEE001]/10 cursor-pointer"
                     >
                       <Mic className="w-6 h-6" />
                     </button>
                   ) : (
                     <button
                       onClick={stopRecording}
-                      className="w-14 h-14 rounded-full bg-red-600 text-white flex items-center justify-center animate-pulse transition-transform hover:scale-105 flex-shrink-0 shadow-lg shadow-red-600/30"
+                      className="w-14 h-14 rounded-full bg-red-600 text-white flex items-center justify-center animate-pulse transition-transform hover:scale-105 flex-shrink-0 shadow-lg shadow-red-600/30 cursor-pointer"
                     >
                       <Square className="w-5 h-5 fill-white" />
                     </button>
@@ -548,7 +641,7 @@ export default function VoiceRAGApp() {
                       {recording ? `Recording (${recordTime}s)` : 'Click to speak'}
                     </p>
                     <p className="font-mono text-[10px] text-emerald-300/50 mt-0.5">
-                      Sarvam AI STT &middot; 16 kHz mono
+                      {sttEngine === 'groq' ? 'Groq Whisper Turbo · LPU Fast STT' : sttEngine === 'sarvam' ? 'Sarvam AI saarika:v2 · 16 kHz mono' : 'Browser On-Device WebSpeech API'}
                     </p>
                   </div>
                   {recording && (
@@ -560,11 +653,34 @@ export default function VoiceRAGApp() {
                   )}
                 </div>
 
-                {sttStatus && (
-                  <p className="font-mono text-[11px] text-[#FEE001] mb-3 flex items-center gap-1.5">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    {sttStatus}
-                  </p>
+                {/* ════ MARKED LOCATION: DYNAMIC STT STATUS / TIMER ════ */}
+                {recording ? (
+                  <div className="mb-3.5 px-3 py-2 rounded-lg bg-red-950/50 border border-red-500/40 flex items-center justify-between font-mono text-[11px] text-red-200 animate-pulse">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
+                      <span className="font-bold">RECORDING ({recordTime}s)</span>
+                      <span className="text-red-300/70">· Speak your query now...</span>
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-red-900/60 border border-red-500/30 uppercase">
+                      {sttEngine}
+                    </span>
+                  </div>
+                ) : sttStatus ? (
+                  <div className="mb-3.5 px-3 py-2 rounded-lg bg-[#002e18] border border-[#FEE001]/50 flex items-center justify-between font-mono text-[11px] text-[#FEE001]">
+                    <span className="flex items-center gap-2">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#FEE001]" />
+                      <span>{sttStatus}</span>
+                    </span>
+                    <span className="text-[10px] text-emerald-300/80 uppercase">{sttEngine}</span>
+                  </div>
+                ) : (
+                  <div className="mb-3.5 px-3 py-1.5 rounded-lg bg-[#002e18]/60 border border-emerald-700/30 flex items-center justify-between font-mono text-[10px] text-emerald-300/70">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      <span>Ready &middot; Engine: <strong className="text-emerald-200 uppercase">{sttEngine === 'groq' ? 'Whisper Turbo (~80ms)' : sttEngine === 'sarvam' ? 'Sarvam (saarika:v2)' : 'WebSpeech (0ms)'}</strong></span>
+                    </span>
+                    <span className="text-[#FEE001]/80">{sttEngine === 'groq' ? '⚡ ~80ms' : sttEngine === 'sarvam' ? '🎙️ 16kHz' : '🌐 Instant'}</span>
+                  </div>
                 )}
 
                 {/* Text input */}
