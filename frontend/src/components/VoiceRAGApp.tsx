@@ -982,7 +982,7 @@ export default function VoiceRAGApp() {
                   <tr className="hover:bg-[#01381e]/60 transition-colors">
                     <td className="py-2.5 px-3 font-semibold text-emerald-200 flex items-center gap-2">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                      LLM Grounded Generation (Groq LPU)
+                      Structured Grounded Generation
                     </td>
                     <td className="py-2.5 px-3 text-right font-bold text-white">{benchmarkMetrics.generation_latency_ms.P50}ms</td>
                     <td className="py-2.5 px-3 text-right">{benchmarkMetrics.generation_latency_ms.P70}ms</td>
@@ -1017,7 +1017,7 @@ export default function VoiceRAGApp() {
                 SUCCESS: In-Memory FAISS + BM25 Sub-Millisecond SLA Verified
               </span>
               <span className="text-emerald-200 font-mono">
-                Pipeline: <strong className="text-[#FEE001]">Sarvam AI (saarika:v2) &#8594; FAISS+BM25 &#8594; Groq LPU</strong>
+                Pipeline: <strong className="text-[#FEE001]">Voice (Sarvam / ElevenLabs) &#8594; FAISS+BM25 &#8594; Structured Extractive Generation</strong>
               </span>
             </div>
           </div>

@@ -110,11 +110,11 @@ def run_pipeline_benchmark(num_queries: int = 100) -> Dict[str, Any]:
     print(f" Total Test Queries Evaluated : {metrics['num_queries_evaluated']}")
     print(f" Guardrail Pass Rate          : {metrics['guardrail_pass_rate_pct']}%")
     print("-" * 65)
-    print(f"{'Component':<25} | {'P50 (ms)':<10} | {'P70 (ms)':<10} | {'P100 (ms)':<10}")
+    print(f"{'Component':<30} | {'P50 (ms)':<10} | {'P70 (ms)':<10} | {'P100 (ms)':<10}")
     print("-" * 65)
-    print(f"{'Vector Retrieval (FAISS+BM25)':<25} | {metrics['retrieval_latency_ms']['P50']:<10} | {metrics['retrieval_latency_ms']['P70']:<10} | {metrics['retrieval_latency_ms']['P100']:<10}")
-    print(f"{'LLM Grounded Generation':<25} | {metrics['generation_latency_ms']['P50']:<10} | {metrics['generation_latency_ms']['P70']:<10} | {metrics['generation_latency_ms']['P100']:<10}")
-    print(f"{'Total End-to-End Pipeline':<25} | {metrics['total_pipeline_latency_ms']['P50']:<10} | {metrics['total_pipeline_latency_ms']['P70']:<10} | {metrics['total_pipeline_latency_ms']['P100']:<10}")
+    print(f"{'Vector Retrieval (FAISS+BM25)':<30} | {metrics['retrieval_latency_ms']['P50']:<10} | {metrics['retrieval_latency_ms']['P70']:<10} | {metrics['retrieval_latency_ms']['P100']:<10}")
+    print(f"{'Structured Grounded Generation':<30} | {metrics['generation_latency_ms']['P50']:<10} | {metrics['generation_latency_ms']['P70']:<10} | {metrics['generation_latency_ms']['P100']:<10}")
+    print(f"{'Total End-to-End Pipeline':<30} | {metrics['total_pipeline_latency_ms']['P50']:<10} | {metrics['total_pipeline_latency_ms']['P70']:<10} | {metrics['total_pipeline_latency_ms']['P100']:<10}")
     print("=" * 65)
 
     if metrics['retrieval_latency_ms']['P100'] < 50.0:
