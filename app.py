@@ -48,12 +48,14 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "groq/compound-mini")
 SARVAM_API_KEY = os.environ.get("SARVAM_API_KEY", "")
 
+from contextlib import asynccontextmanager
+
 # -----------------------------------------------------------------------------
 # Pydantic Schemas
 # -----------------------------------------------------------------------------
 
 class GenerateRequest(BaseModel):
-    query: str = Field(..., example="What is hybrid vector search using FAISS and BM25?")
+    query: str = Field(..., examples=["What is hybrid vector search using FAISS and BM25?"])
     top_k: int = Field(5, ge=1, le=20)
 
 
@@ -104,25 +106,6 @@ class GuardrailErrorResponse(BaseModel):
     reason: str
 
 
-# -----------------------------------------------------------------------------
-# FastAPI App & Middleware
-# -----------------------------------------------------------------------------
-
-app = FastAPI(
-    title="Voice-Enabled RAG Orchestration Harness",
-    description="Sub-200ms Guardrailed Voice RAG API with Sarvam STT, FAISS, BM25, and Groq LLM",
-    version="1.0.0",
-)
-
-# Enable CORS for Frontend/Browser Voice Input UI
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 # Global in-memory retriever instance & pre-computed domain anchor embeddings
 retriever: Optional[HybridRetriever] = None
 groq_client: Optional[Groq] = None
@@ -151,7 +134,6 @@ DOMAIN_ANCHORS = [
 ]
 
 
-@app.on_event("startup")
 def startup_event():
     """
     Startup handler: Initialize in-memory retriever with MSMARCO chunks
@@ -259,6 +241,33 @@ def startup_event():
     ).astype(np.float32)
 
     logger.info(f"Retriever initialized with {len(knowledge_chunks)} chunks and cached domain anchors.")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    startup_event()
+    yield
+
+
+# -----------------------------------------------------------------------------
+# FastAPI App & Middleware
+# -----------------------------------------------------------------------------
+
+app = FastAPI(
+    title="Voice-Enabled RAG Orchestration Harness",
+    description="Sub-200ms Guardrailed Voice RAG API with Sarvam STT, FAISS, BM25, and Groq LLM",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+# Enable CORS for Frontend/Browser Voice Input UI
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # Initialize at import time for instant availability
