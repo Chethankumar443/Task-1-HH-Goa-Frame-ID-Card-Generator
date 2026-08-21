@@ -1,17 +1,4 @@
----
 
-## **01_PRD_HH_Goa_Voice_RAG.md**
-
-```markdown
-# Product Requirements Document (PRD)
-## Voice-Enabled RAG Model - Hacker House Goa 2026
-
-**Document Version:** 1.0  
-**Status:** Approved  
-**Last Updated:** August 21, 2026  
-**Owner:** Product Lead
-
----
 
 ## 1. Executive Summary
 
