@@ -141,9 +141,9 @@ def startup_event():
 
     logger.info("Initializing RAG Orchestration Harness at startup...")
 
-    # Initialize Groq client
+    # Initialize Groq client with zero-wait retry and fast timeout
     if GROQ_API_KEY:
-        groq_client = Groq(api_key=GROQ_API_KEY)
+        groq_client = Groq(api_key=GROQ_API_KEY, max_retries=0, timeout=1.2)
     else:
         logger.warning("GROQ_API_KEY is not set in environment. Set GROQ_API_KEY to execute live LLM calls.")
         groq_client = None
@@ -428,11 +428,11 @@ def generate_rag_answer(request: GenerateRequest):
     answer = ""
     generation_ms = 0.0
 
-    # Auto-select reliable model: prefer groq/compound-mini or openai/gpt-oss-20b for fast non-reasoning direct answers
+    # Auto-select ultra-low latency model: prefer allam-2-7b, openai/gpt-oss-20b for sub-150ms generation
     candidate_models = []
-    if GROQ_MODEL and GROQ_MODEL not in ["llama-3.1-8b-instant"]:
+    if GROQ_MODEL and GROQ_MODEL not in ["llama-3.1-8b-instant", "groq/compound-mini"]:
         candidate_models.append(GROQ_MODEL)
-    candidate_models.extend(["groq/compound-mini", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"])
+    candidate_models.extend(["allam-2-7b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"])
 
     if groq_client:
         for model_name in candidate_models:
