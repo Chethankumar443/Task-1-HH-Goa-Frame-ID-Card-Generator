@@ -1,0 +1,185 @@
+"""
+Speech-to-Text (STT) Integration Handler: Sarvam AI + ElevenLabs Fallback
+==========================================================================
+
+Production-grade speech transcription with automated provider failover:
+1. Primary Provider: Sarvam AI STT (model: saarika:v2)
+   - High-accuracy Indian & multilingual transcription
+2. Fallback Provider: ElevenLabs Scribe STT (model: scribe_v1)
+   - Triggers automatically if Sarvam credits are depleted, rate-limited (429), or unavailable (401/5xx)
+
+Author: Senior Voice/Backend Engineer
+Date: 2026-08-21
+"""
+
+import io
+import logging
+import os
+import time
+from typing import Any, Dict, Optional, Tuple
+
+import requests
+from dotenv import load_dotenv
+
+# Load Environment Variables from .env
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
+
+# Provider Configuration
+SARVAM_API_URL = "https://api.sarvam.ai/speech-to-text"
+SARVAM_API_KEY = os.environ.get("SARVAM_API_KEY", "")
+
+ELEVENLABS_API_URL = "https://api.elevenlabs.io/v1/speech-to-text"
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+
+
+def transcribe_audio_sarvam(
+    file_bytes: bytes,
+    filename: str = "audio.wav",
+    model: str = "saarika:v2.5",
+    language_code: str = "unknown",
+    api_key: Optional[str] = None,
+) -> Tuple[str, str, float]:
+    """
+    Transcribe audio bytes using Sarvam AI Speech-To-Text API.
+
+    Returns:
+        (transcript: str, detected_language: str, latency_ms: float)
+    """
+    key = api_key or os.environ.get("SARVAM_API_KEY", SARVAM_API_KEY)
+    if not key:
+        raise ValueError("SARVAM_API_KEY is not set.")
+
+    headers = {
+        "api-subscription-key": key,
+    }
+
+    files = {
+        "file": (filename, file_bytes, "audio/wav"),
+    }
+
+    data = {
+        "model": model,
+    }
+    if language_code and language_code != "unknown":
+        data["language_code"] = language_code
+
+    t0 = time.perf_counter()
+    try:
+        response = requests.post(SARVAM_API_URL, headers=headers, files=files, data=data, timeout=8.0)
+        t1 = time.perf_counter()
+        latency_ms = (t1 - t0) * 1000.0
+
+        if response.status_code == 200:
+            res_data = response.json()
+            transcript = res_data.get("transcript", "").strip()
+            detected_lang = res_data.get("language_code", language_code)
+            logger.info(f"Sarvam STT Success ({latency_ms:.2f}ms): '{transcript}'")
+            return transcript, detected_lang, round(latency_ms, 2)
+        else:
+            logger.error(f"Sarvam STT API error ({response.status_code}): {response.text}")
+            raise RuntimeError(f"Sarvam STT returned status {response.status_code}: {response.text}")
+
+    except Exception as e:
+        t1 = time.perf_counter()
+        latency_ms = (t1 - t0) * 1000.0
+        logger.error(f"Sarvam STT Exception: {e}")
+        raise e
+
+
+def transcribe_audio_elevenlabs(
+    file_bytes: bytes,
+    filename: str = "audio.wav",
+    model_id: str = "scribe_v1",
+    api_key: Optional[str] = None,
+) -> Tuple[str, str, float]:
+    """
+    Transcribe audio bytes using ElevenLabs Speech-To-Text API.
+
+    Returns:
+        (transcript: str, detected_language: str, latency_ms: float)
+    """
+    key = api_key or os.environ.get("ELEVENLABS_API_KEY", ELEVENLABS_API_KEY)
+    if not key:
+        raise ValueError("ELEVENLABS_API_KEY is not set.")
+
+    headers = {
+        "xi-api-key": key,
+    }
+
+    files = {
+        "file": (filename, file_bytes, "audio/wav"),
+    }
+
+    data = {
+        "model_id": model_id,
+    }
+
+    t0 = time.perf_counter()
+    try:
+        response = requests.post(ELEVENLABS_API_URL, headers=headers, files=files, data=data, timeout=12.0)
+        t1 = time.perf_counter()
+        latency_ms = (t1 - t0) * 1000.0
+
+        if response.status_code == 200:
+            res_data = response.json()
+            transcript = res_data.get("text") or res_data.get("transcript") or ""
+            detected_lang = res_data.get("language_code", "en")
+            logger.info(f"ElevenLabs STT Fallback Success ({latency_ms:.2f}ms): '{transcript.strip()}'")
+            return transcript.strip(), detected_lang, round(latency_ms, 2)
+        else:
+            logger.error(f"ElevenLabs STT API error ({response.status_code}): {response.text}")
+            raise RuntimeError(f"ElevenLabs STT failed with status {response.status_code}: {response.text}")
+
+    except Exception as e:
+        t1 = time.perf_counter()
+        latency_ms = (t1 - t0) * 1000.0
+        logger.error(f"ElevenLabs STT Exception: {e}")
+        raise e
+
+
+def transcribe_audio_resilient(
+    file_bytes: bytes,
+    filename: str = "audio.wav",
+    language_code: str = "unknown",
+) -> Tuple[str, str, float, str]:
+    """
+    Resilient STT pipeline:
+    Attempts Sarvam AI first; if credits are exhausted, rate-limited, or failed,
+    automatically falls back to ElevenLabs Scribe STT.
+
+    Returns:
+        (transcript: str, detected_language: str, latency_ms: float, provider_used: str)
+    """
+    # 1. Try Sarvam AI Primary
+    try:
+        transcript, lang, lat_ms = transcribe_audio_sarvam(
+            file_bytes=file_bytes,
+            filename=filename,
+            language_code=language_code,
+        )
+        return transcript, lang, lat_ms, "sarvam"
+    except Exception as sarvam_err:
+        logger.warning(
+            f"Primary Sarvam STT failed ({sarvam_err}). Failing over to ElevenLabs STT fallback..."
+        )
+
+    # 2. Try ElevenLabs Fallback
+    try:
+        transcript, lang, lat_ms = transcribe_audio_elevenlabs(
+            file_bytes=file_bytes,
+            filename=filename,
+        )
+        return transcript, lang, lat_ms, "elevenlabs"
+    except Exception as el_err:
+        logger.error(f"Both Sarvam and ElevenLabs STT failed. Last error: {el_err}")
+        raise RuntimeError(f"All STT providers failed (Sarvam: {sarvam_err}, ElevenLabs: {el_err})")
+
+
+if __name__ == "__main__":
+    print(f"STT Handler Ready:")
+    print(f"  - Sarvam API Key: {SARVAM_API_KEY[:8] if SARVAM_API_KEY else 'None'}...")
+    print(f"  - ElevenLabs Fallback Key: {ELEVENLABS_API_KEY[:8] if ELEVENLABS_API_KEY else 'None'}...")

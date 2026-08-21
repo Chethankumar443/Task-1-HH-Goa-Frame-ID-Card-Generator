@@ -1,0 +1,81 @@
+@import url('https://fonts.googleapis.com/css2?family=Imbue:opsz,wght@10..100,100..900&family=Victor+Mono:ital,wght@0,100..700;1,100..700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-hh-bg: #026636;
+  --color-hh-dark: #014424;
+  --color-hh-yellow: #FEE001;
+  --font-heading: 'Imbue', Georgia, serif;
+  --font-content: 'Victor Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+html, body {
+  background-color: var(--color-hh-bg);
+  color: #ffffff;
+  font-family: var(--font-content);
+  min-height: 100vh;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-heading {
+  font-family: var(--font-heading);
+  letter-spacing: -0.02em;
+}
+
+.font-mono {
+  font-family: var(--font-content);
+}
+
+/* ── Shimmer animation ─────────────────────────────────────── */
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+
+/* ── Marquee ticker ────────────────────────────────────────── */
+@keyframes marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-33.333%); }
+}
+
+/* ── Wave bar recording animation ──────────────────────────── */
+@keyframes wave-bar {
+  0%, 100% { height: 6px; }
+  50%      { height: 22px; }
+}
+
+.wave-bar-1 { animation: wave-bar 0.7s infinite ease-in-out; }
+.wave-bar-2 { animation: wave-bar 0.7s infinite ease-in-out 0.10s; }
+.wave-bar-3 { animation: wave-bar 0.7s infinite ease-in-out 0.20s; }
+.wave-bar-4 { animation: wave-bar 0.7s infinite ease-in-out 0.30s; }
+.wave-bar-5 { animation: wave-bar 0.7s infinite ease-in-out 0.40s; }
+
+/* ── Custom scrollbar ──────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(254, 224, 1, 0.15);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(254, 224, 1, 0.35);
+}

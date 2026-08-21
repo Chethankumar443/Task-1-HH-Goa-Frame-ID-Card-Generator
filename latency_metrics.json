@@ -1,0 +1,22 @@
+{
+  "num_queries_evaluated": 100,
+  "guardrail_pass_rate_pct": 70.0,
+  "retrieval_latency_ms": {
+    "P50": 20.95,
+    "P70": 66.39,
+    "P100": 2997.63,
+    "mean": 151.61
+  },
+  "generation_latency_ms": {
+    "P50": 2106.74,
+    "P70": 3024.02,
+    "P100": 23315.49,
+    "mean": 2041.49
+  },
+  "total_pipeline_latency_ms": {
+    "P50": 3051.93,
+    "P70": 3283.56,
+    "P100": 23393.42,
+    "mean": 2723.12
+  }
+}
