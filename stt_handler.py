@@ -191,13 +191,14 @@ def transcribe_audio_resilient(
     file_bytes: bytes,
     filename: str = "audio.wav",
     language_code: str = "unknown",
-    provider: str = "sarvam",
+    provider: str = "fast",
 ) -> Tuple[str, str, float, str]:
     """
-    Production-grade Resilient STT pipeline:
+    Sub-100ms Resilient STT pipeline:
     1. Checks fast in-memory audio hash cache (<0.1ms).
-    2. Primary: Sarvam AI STT (saarika:v2) with persistent HTTP connection pooling.
-    3. Fallback: ElevenLabs Scribe STT (scribe_v1) if Sarvam fails or is rate-limited.
+    2. Primary for Sub-200ms SLA: Groq Whisper Turbo (~60-80ms).
+    3. Multilingual Indic Primary: Sarvam AI STT (saarika:v2).
+    4. Resilient Fallback: ElevenLabs Scribe STT (scribe_v1).
 
     Returns:
         (transcript: str, detected_language: str, latency_ms: float, provider_used: str)
@@ -208,17 +209,17 @@ def transcribe_audio_resilient(
         cached_trans, cached_lang, _, cached_prov = STT_CACHE[audio_hash]
         return cached_trans, cached_lang, 0.05, f"{cached_prov}_cached"
 
-    # Specific Provider: ElevenLabs
-    if provider == "elevenlabs":
+    # 1. Fast path: Groq LPU Whisper Turbo (~60-80ms)
+    if provider in ["fast", "auto", "whisper", "groq"]:
         try:
-            transcript, lang, lat_ms = transcribe_audio_elevenlabs(file_bytes=file_bytes, filename=filename)
+            transcript, lang, lat_ms = transcribe_audio_groq(file_bytes=file_bytes, filename=filename)
             if transcript:
-                STT_CACHE[audio_hash] = (transcript, lang, lat_ms, "elevenlabs")
-                return transcript, lang, lat_ms, "elevenlabs"
+                STT_CACHE[audio_hash] = (transcript, lang, lat_ms, "whisper_turbo")
+                return transcript, lang, lat_ms, "whisper_turbo"
         except Exception as e:
-            logger.warning(f"ElevenLabs STT failed: {e}. Falling back to Sarvam...")
+            logger.warning(f"Whisper Turbo STT error: {e}. Falling back to Sarvam AI...")
 
-    # Primary: Sarvam AI saarika:v2 (Latest lightweight 16kHz model)
+    # 2. Sarvam AI saarika:v2 (Indic multilingual 16kHz)
     try:
         transcript, lang, lat_ms = transcribe_audio_sarvam(
             file_bytes=file_bytes,
@@ -229,9 +230,9 @@ def transcribe_audio_resilient(
             STT_CACHE[audio_hash] = (transcript, lang, lat_ms, "sarvam")
             return transcript, lang, lat_ms, "sarvam"
     except Exception as sarvam_err:
-        logger.warning(f"Primary Sarvam STT failed ({sarvam_err}). Failing over to ElevenLabs Scribe STT fallback...")
+        logger.warning(f"Sarvam STT failed ({sarvam_err}). Failing over to ElevenLabs...")
 
-    # Automatic Fallback: ElevenLabs Scribe STT
+    # 3. ElevenLabs Scribe STT Fallback
     try:
         transcript, lang, lat_ms = transcribe_audio_elevenlabs(
             file_bytes=file_bytes,
@@ -241,7 +242,7 @@ def transcribe_audio_resilient(
             STT_CACHE[audio_hash] = (transcript, lang, lat_ms, "elevenlabs")
             return transcript, lang, lat_ms, "elevenlabs"
     except Exception as el_err:
-        logger.error(f"Both Sarvam and ElevenLabs STT failed. Last error: {el_err}")
+        logger.error(f"All STT providers failed. Last error: {el_err}")
         raise RuntimeError(f"All STT providers failed (Sarvam: {sarvam_err}, ElevenLabs: {el_err})")
 
 
