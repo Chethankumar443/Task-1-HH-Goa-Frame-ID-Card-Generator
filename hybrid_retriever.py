@@ -12,6 +12,7 @@ Author: Senior Backend / RAG Engineer
 Date: 2026-08-21
 """
 
+import gc
 import json
 import logging
 import os
@@ -21,8 +22,13 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import faiss
 import numpy as np
+import torch
 from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
+
+# Optimize PyTorch CPU memory for low-resource cloud runtimes (e.g. Render 512MB)
+torch.set_grad_enabled(False)
+torch.set_num_threads(1)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -122,6 +128,7 @@ class HybridRetriever:
         tokenized_corpus = [simple_tokenize(c["text"]) for c in self.chunks]
         self.bm25_index = BM25Okapi(tokenized_corpus)
 
+        gc.collect()
         logger.info("HybridRetriever ready and fully loaded into RAM.")
 
     def search(

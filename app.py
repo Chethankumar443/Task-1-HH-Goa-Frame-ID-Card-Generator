@@ -270,10 +270,6 @@ app.add_middleware(
 )
 
 
-# Initialize at import time for instant availability
-startup_event()
-
-
 # -----------------------------------------------------------------------------
 # Pre-Flight Guardrail Check (Sub-millisecond)
 # -----------------------------------------------------------------------------
