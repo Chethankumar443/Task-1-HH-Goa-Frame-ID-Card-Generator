@@ -191,15 +191,13 @@ def transcribe_audio_resilient(
     file_bytes: bytes,
     filename: str = "audio.wav",
     language_code: str = "unknown",
-    provider: str = "auto",
+    provider: str = "sarvam",
 ) -> Tuple[str, str, float, str]:
     """
-    Resilient multi-provider STT pipeline:
-    Supports:
-    - "groq" / "whisper": Groq LPU Whisper Turbo (~80ms ultra-low latency)
-    - "sarvam": Sarvam AI saarika:v2 (16kHz fast Indic + English)
-    - "elevenlabs": ElevenLabs Scribe STT
-    - "auto": Groq Whisper Turbo first, fallback to Sarvam AI, then ElevenLabs.
+    Production-grade Resilient STT pipeline:
+    1. Checks fast in-memory audio hash cache (<0.1ms).
+    2. Primary: Sarvam AI STT (saarika:v2) with persistent HTTP connection pooling.
+    3. Fallback: ElevenLabs Scribe STT (scribe_v1) if Sarvam fails or is rate-limited.
 
     Returns:
         (transcript: str, detected_language: str, latency_ms: float, provider_used: str)
@@ -210,16 +208,6 @@ def transcribe_audio_resilient(
         cached_trans, cached_lang, _, cached_prov = STT_CACHE[audio_hash]
         return cached_trans, cached_lang, 0.05, f"{cached_prov}_cached"
 
-    # Specific Provider: Groq Whisper Turbo
-    if provider in ["groq", "whisper", "whisper-turbo"]:
-        try:
-            transcript, lang, lat_ms = transcribe_audio_groq(file_bytes=file_bytes, filename=filename)
-            if transcript:
-                STT_CACHE[audio_hash] = (transcript, lang, lat_ms, "groq_whisper")
-                return transcript, lang, lat_ms, "groq_whisper"
-        except Exception as e:
-            logger.warning(f"Groq Whisper STT failed: {e}. Falling back to Sarvam AI...")
-
     # Specific Provider: ElevenLabs
     if provider == "elevenlabs":
         try:
@@ -228,9 +216,9 @@ def transcribe_audio_resilient(
                 STT_CACHE[audio_hash] = (transcript, lang, lat_ms, "elevenlabs")
                 return transcript, lang, lat_ms, "elevenlabs"
         except Exception as e:
-            logger.warning(f"ElevenLabs STT failed: {e}. Falling back...")
+            logger.warning(f"ElevenLabs STT failed: {e}. Falling back to Sarvam...")
 
-    # Primary: Sarvam AI saarika:v2
+    # Primary: Sarvam AI saarika:v2 (Latest lightweight 16kHz model)
     try:
         transcript, lang, lat_ms = transcribe_audio_sarvam(
             file_bytes=file_bytes,
@@ -239,20 +227,11 @@ def transcribe_audio_resilient(
         )
         if transcript:
             STT_CACHE[audio_hash] = (transcript, lang, lat_ms, "sarvam")
-        return transcript, lang, lat_ms, "sarvam"
+            return transcript, lang, lat_ms, "sarvam"
     except Exception as sarvam_err:
-        logger.warning(f"Sarvam STT failed ({sarvam_err}). Trying Groq Whisper / ElevenLabs fallback...")
+        logger.warning(f"Primary Sarvam STT failed ({sarvam_err}). Failing over to ElevenLabs Scribe STT fallback...")
 
-    # Fallback 1: Groq Whisper Turbo
-    try:
-        transcript, lang, lat_ms = transcribe_audio_groq(file_bytes=file_bytes, filename=filename)
-        if transcript:
-            STT_CACHE[audio_hash] = (transcript, lang, lat_ms, "groq_whisper")
-            return transcript, lang, lat_ms, "groq_whisper"
-    except Exception:
-        pass
-
-    # Fallback 2: ElevenLabs
+    # Automatic Fallback: ElevenLabs Scribe STT
     try:
         transcript, lang, lat_ms = transcribe_audio_elevenlabs(
             file_bytes=file_bytes,
@@ -260,9 +239,9 @@ def transcribe_audio_resilient(
         )
         if transcript:
             STT_CACHE[audio_hash] = (transcript, lang, lat_ms, "elevenlabs")
-        return transcript, lang, lat_ms, "elevenlabs"
+            return transcript, lang, lat_ms, "elevenlabs"
     except Exception as el_err:
-        logger.error(f"All STT providers failed. Last error: {el_err}")
+        logger.error(f"Both Sarvam and ElevenLabs STT failed. Last error: {el_err}")
         raise RuntimeError(f"All STT providers failed (Sarvam: {sarvam_err}, ElevenLabs: {el_err})")
 
 
