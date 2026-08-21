@@ -19,27 +19,24 @@ import logging
 import os
 import re
 import time
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional, Tuple
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from groq import Groq
 import numpy as np
 from pydantic import BaseModel, Field
 
-from hybrid_retriever import HybridRetriever, simple_tokenize
-from stt_handler import (
-    transcribe_audio_sarvam,
-    transcribe_audio_elevenlabs,
-    transcribe_audio_resilient,
-)
+from hybrid_retriever import HybridRetriever
+from stt_handler import transcribe_audio_resilient
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
-
-from dotenv import load_dotenv
 
 # Load Environment Variables from .env
 load_dotenv()
@@ -47,8 +44,6 @@ load_dotenv()
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "groq/compound-mini")
 SARVAM_API_KEY = os.environ.get("SARVAM_API_KEY", "")
-
-from contextlib import asynccontextmanager
 
 # -----------------------------------------------------------------------------
 # Pydantic Schemas

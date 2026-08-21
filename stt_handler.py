@@ -12,11 +12,10 @@ Author: Senior Voice/Backend Engineer
 Date: 2026-08-21
 """
 
-import io
 import logging
 import os
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import Optional, Tuple
 
 import requests
 from dotenv import load_dotenv

@@ -13,12 +13,11 @@ Date: 2026-08-21
 """
 
 import gc
-import json
 import logging
 import os
 import re
 import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional
 
 import faiss
 import numpy as np
