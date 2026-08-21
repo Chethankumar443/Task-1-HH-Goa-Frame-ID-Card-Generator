@@ -417,7 +417,7 @@ def generate_rag_answer(request: GenerateRequest):
     context_blocks = [f"[{c['chunk_id']}] {c['text']}" for c in retrieved_results[:3]]
     context_str = "\n".join(context_blocks)
 
-    # STEP 3: Ultra-Fast LLM Generation (Groq LPU Instant, max_tokens=100, temp=0.0)
+    # STEP 3: Ultra-Fast LLM Generation (Groq LPU Instant, temp=0.0)
     t_gen_start = time.perf_counter()
 
     system_prompt = (
@@ -428,38 +428,53 @@ def generate_rag_answer(request: GenerateRequest):
     answer = ""
     generation_ms = 0.0
 
-    # Auto-select fastest available Groq model (prefer qwen/qwen3.6-27b or groq/compound-mini)
-    active_model = "qwen/qwen3.6-27b" if GROQ_MODEL in ["openai/gpt-oss-20b", "llama-3.1-8b-instant", ""] else GROQ_MODEL
+    # Auto-select reliable model: prefer groq/compound-mini or openai/gpt-oss-20b for fast non-reasoning direct answers
+    candidate_models = []
+    if GROQ_MODEL and GROQ_MODEL not in ["llama-3.1-8b-instant"]:
+        candidate_models.append(GROQ_MODEL)
+    candidate_models.extend(["groq/compound-mini", "openai/gpt-oss-20b", "qwen/qwen3.6-27b"])
 
     if groq_client:
-        try:
-            response = groq_client.chat.completions.create(
-                model=active_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": request.query},
-                ],
-                temperature=0.0,
-                max_tokens=60,
-            )
-            raw_content = response.choices[0].message.content.strip()
-            # Clean think tags if present
-            if "<think>" in raw_content and "</think>" in raw_content:
-                raw_content = raw_content.split("</think>")[-1].strip()
-            elif "<think>" in raw_content:
-                raw_content = raw_content.replace("<think>", "").strip()
-            
-            answer = raw_content if raw_content else f"Based on retrieved context [{retrieved_results[0]['chunk_id']}], {retrieved_results[0]['text']}"
+        for model_name in candidate_models:
+            try:
+                response = groq_client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": request.query},
+                    ],
+                    temperature=0.0,
+                    max_tokens=150,
+                )
+                raw_content = response.choices[0].message.content.strip()
+                
+                # Robustly remove any thinking/reasoning prefixes or tags
+                if "<think>" in raw_content and "</think>" in raw_content:
+                    raw_content = raw_content.split("</think>")[-1].strip()
+                elif "<think>" in raw_content:
+                    raw_content = raw_content.replace("<think>", "").strip()
+                
+                if "thinking process:" in raw_content.lower():
+                    # If output starts with thinking process bullets, extract the final draft/sentence
+                    cleaned_parts = re.split(r"(?:answer|draft\s*\d*):", raw_content, flags=re.IGNORECASE)
+                    if len(cleaned_parts) > 1:
+                        raw_content = cleaned_parts[-1].strip()
+                
+                if raw_content:
+                    answer = raw_content
+                    break
+            except Exception as e:
+                logger.warning(f"Groq generation failed with {model_name}: {e}")
+                continue
 
-            # STEP 4: Post-flight Citation Validation
-            is_valid = validate_postflight_citations(answer, valid_chunk_ids)
-            if not is_valid:
-                answer = f"{answer} [{valid_chunk_ids[0]}]"
-
-        except Exception as e:
-            logger.warning(f"Groq API fast fallback triggered: {e}")
+        if not answer:
             top_c = retrieved_results[0]
             answer = f"Based on verified chunk [{top_c['chunk_id']}], {top_c['text']}"
+
+        # STEP 4: Post-flight Citation Validation
+        is_valid = validate_postflight_citations(answer, valid_chunk_ids)
+        if not is_valid:
+            answer = f"{answer} [{valid_chunk_ids[0]}]"
     else:
         top_c = retrieved_results[0]
         answer = f"Based on verified chunk [{top_c['chunk_id']}], {top_c['text']}"

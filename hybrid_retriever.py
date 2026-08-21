@@ -13,6 +13,7 @@ Date: 2026-08-21
 """
 
 import gc
+import json
 import logging
 import os
 import re
