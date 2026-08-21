@@ -229,11 +229,7 @@ def startup_event():
     )
 
     # Pre-compute domain anchor embeddings once at startup to guarantee sub-millisecond guardrails
-    domain_anchor_embeddings = retriever.model.encode(
-        DOMAIN_ANCHORS,
-        convert_to_numpy=True,
-        normalize_embeddings=True,
-    ).astype(np.float32)
+    domain_anchor_embeddings = retriever.encode(DOMAIN_ANCHORS, normalize=True)
 
     logger.info(f"Retriever initialized with {len(knowledge_chunks)} chunks and cached domain anchors.")
 
@@ -284,11 +280,7 @@ def run_preflight_guardrail(query: str, retriever: HybridRetriever) -> Tuple[boo
 
     # 2. Off-topic domain similarity check with single query encode
     try:
-        query_vec = retriever.model.encode(
-            [query],
-            convert_to_numpy=True,
-            normalize_embeddings=True,
-        ).astype(np.float32)
+        query_vec = retriever.encode(query, normalize=True)
 
         if domain_anchor_embeddings is not None:
             similarities = np.dot(domain_anchor_embeddings, query_vec[0])

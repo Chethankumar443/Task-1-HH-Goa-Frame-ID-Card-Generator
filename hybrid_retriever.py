@@ -17,17 +17,25 @@ import logging
 import os
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import faiss
 import numpy as np
-import torch
 from rank_bm25 import BM25Okapi
-from sentence_transformers import SentenceTransformer
 
-# Optimize PyTorch CPU memory for low-resource cloud runtimes (e.g. Render 512MB)
-torch.set_grad_enabled(False)
-torch.set_num_threads(1)
+# FastEmbed ONNX loader (40MB RAM vs 500MB PyTorch)
+try:
+    from fastembed import TextEmbedding
+    HAS_FASTEMBED = True
+except ImportError:
+    HAS_FASTEMBED = False
+    try:
+        import torch
+        from sentence_transformers import SentenceTransformer
+        torch.set_grad_enabled(False)
+        torch.set_num_threads(1)
+    except ImportError:
+        pass
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -46,6 +54,7 @@ class HybridRetriever:
     Production-grade in-memory Hybrid Retriever using FAISS and BM25.
     
     Guarantees <50ms query latency by maintaining all indexes in RAM.
+    Uses ultra-lightweight FastEmbed ONNX (40MB RAM) for low-resource environments.
     """
 
     def __init__(
@@ -62,17 +71,6 @@ class HybridRetriever:
     ) -> None:
         """
         Initialize and build in-memory FAISS and BM25 indexes.
-
-        Args:
-            chunks: List of document dictionaries containing 'chunk_id', 'text', and 'metadata'.
-            embeddings: Optional pre-computed embeddings numpy array of shape (N, dim).
-            model_name: Name of SentenceTransformer model.
-            dense_weight: Weight for dense vector scores (default 0.7).
-            sparse_weight: Weight for sparse BM25 scores (default 0.3).
-            use_ivf: If True, uses IndexIVFFlat; if False, uses IndexFlatIP (exact).
-            nlist: Number of Voronoi cells for IVF index.
-            nprobe: Number of cells to inspect during IVF search.
-            device: PyTorch device ('cuda' or 'cpu').
         """
         if not chunks:
             raise ValueError("chunks list cannot be empty")
@@ -84,25 +82,23 @@ class HybridRetriever:
 
         logger.info(f"Initializing HybridRetriever with {len(chunks)} chunks...")
 
-        # 1. Initialize SentenceTransformer model for query encoding
-        logger.info(f"Loading SentenceTransformer model '{model_name}'...")
-        self.model = SentenceTransformer(model_name, device=device)
-        self.embedding_dim = self.model.get_sentence_embedding_dimension()
+        # 1. Initialize Lightweight FastEmbed ONNX or SentenceTransformer model
+        if HAS_FASTEMBED:
+            logger.info("Using FastEmbed ONNX runtime (ultra-low ~40MB memory footprint)...")
+            self.model = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
+            self.embedding_dim = 384
+        else:
+            logger.info(f"Loading SentenceTransformer model '{model_name}'...")
+            self.model = SentenceTransformer(model_name, device=device or "cpu")
+            self.embedding_dim = self.model.get_sentence_embedding_dimension()
 
         # 2. Prepare or compute dense embeddings
         if embeddings is None:
             logger.info("Computing dense embeddings for chunks...")
             texts = [c["text"] for c in self.chunks]
-            embeddings = self.model.encode(
-                texts,
-                batch_size=256,
-                show_progress_bar=False,
-                convert_to_numpy=True,
-                normalize_embeddings=True,
-            )
+            embeddings = self.encode(texts, normalize=True)
         else:
             embeddings = np.ascontiguousarray(embeddings, dtype=np.float32)
-            # Ensure L2 normalization for inner product = cosine similarity
             norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
             norms[norms == 0] = 1e-10
             embeddings = embeddings / norms
@@ -118,7 +114,6 @@ class HybridRetriever:
             self.faiss_index.add(self.embeddings)
             self.faiss_index.nprobe = self.nprobe
         else:
-            # IndexFlatIP with L2 normalized vectors gives exact cosine similarity
             self.faiss_index = faiss.IndexFlatIP(self.embedding_dim)
             self.faiss_index.add(self.embeddings)
 
@@ -129,6 +124,25 @@ class HybridRetriever:
 
         gc.collect()
         logger.info("HybridRetriever ready and fully loaded into RAM.")
+
+    def encode(self, texts: Union[str, List[str]], normalize: bool = True) -> np.ndarray:
+        """
+        Encode text or list of texts into normalized float32 embeddings.
+        """
+        if isinstance(texts, str):
+            texts = [texts]
+        
+        if hasattr(self.model, "embed"):
+            embs = np.array(list(self.model.embed(texts)), dtype=np.float32)
+        else:
+            embs = self.model.encode(texts, convert_to_numpy=True, show_progress_bar=False).astype(np.float32)
+
+        if normalize:
+            norms = np.linalg.norm(embs, axis=-1, keepdims=True)
+            norms[norms == 0] = 1e-10
+            embs = embs / norms
+
+        return embs
 
     def search(
         self,
@@ -155,11 +169,7 @@ class HybridRetriever:
 
         # --- A. Dense Retrieval (FAISS) ---
         if query_vec is None:
-            query_vec = self.model.encode(
-                [query],
-                convert_to_numpy=True,
-                normalize_embeddings=True,
-            ).astype(np.float32)
+            query_vec = self.encode(query, normalize=True)
         elif query_vec.ndim == 1:
             query_vec = np.expand_dims(query_vec, axis=0).astype(np.float32)
 
