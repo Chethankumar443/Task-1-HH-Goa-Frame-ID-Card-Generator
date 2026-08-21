@@ -554,17 +554,11 @@ export default function VoiceRAGApp() {
       <main ref={consoleRef} className="flex-1 bg-[#026636]">
         <div className="max-w-[1400px] mx-auto px-6 lg:px-10 py-16">
           {/* Section header */}
-          <div className="mb-10 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-            <div>
-              <h2 className="font-heading text-4xl lg:text-5xl text-white mb-2">Voice RAG Engine</h2>
-              <p className="font-mono text-xs text-emerald-200/60 max-w-lg">
-                Speak or type a question. The hybrid retriever finds context in under 50ms, then Groq generates a grounded answer with citations.
-              </p>
-            </div>
-            <div className="inline-flex items-center gap-2 text-[11px] font-mono text-[#FEE001]/90 bg-[#014424] px-3.5 py-1.5 rounded-md border border-[#FEE001]/20">
-              <span className="w-2 h-2 rounded-full bg-[#FEE001] animate-ping" />
-              <span>HYBRID FUSION: 70% DENSE + 30% SPARSE</span>
-            </div>
+          <div className="mb-10">
+            <h2 className="font-heading text-4xl lg:text-5xl text-white mb-2">Voice RAG Engine</h2>
+            <p className="font-mono text-xs text-emerald-200/60 max-w-lg">
+              Speak or type a question. The hybrid retriever finds context in under 50ms, then Groq generates a grounded answer with citations.
+            </p>
           </div>
 
           {/* ── Two-column layout ───────────────────────────── */}
@@ -573,51 +567,9 @@ export default function VoiceRAGApp() {
             <div className="lg:col-span-2 space-y-5">
               {/* Voice recorder */}
               <div className="rounded-xl bg-[#014424] border border-emerald-700/50 p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <p className="font-mono text-[10px] text-emerald-300/60 tracking-widest uppercase">
-                    Voice Input Pipeline
-                  </p>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#002e18] border border-[#FEE001]/30 text-[#FEE001]">
-                    {sttEngine === 'groq' ? 'LPU SUB-100MS' : sttEngine === 'sarvam' ? 'SARVAM 16KHZ' : 'INSTANT 0MS'}
-                  </span>
-                </div>
-
-                {/* STT Engine Selector Pills */}
-                <div className="grid grid-cols-3 gap-1.5 p-1 bg-[#002e18] rounded-lg border border-emerald-700/40 mb-5 text-[10px] font-mono">
-                  <button
-                    type="button"
-                    onClick={() => setSttEngine('groq')}
-                    className={`py-1 px-1.5 rounded text-center font-bold transition-all ${
-                      sttEngine === 'groq'
-                        ? 'bg-[#FEE001] text-[#012915] shadow-sm'
-                        : 'text-emerald-300/70 hover:text-white'
-                    }`}
-                  >
-                    ⚡ Whisper (~80ms)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSttEngine('sarvam')}
-                    className={`py-1 px-1.5 rounded text-center font-bold transition-all ${
-                      sttEngine === 'sarvam'
-                        ? 'bg-[#FEE001] text-[#012915] shadow-sm'
-                        : 'text-emerald-300/70 hover:text-white'
-                    }`}
-                  >
-                    🎙️ Sarvam (v2)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSttEngine('webspeech')}
-                    className={`py-1 px-1.5 rounded text-center font-bold transition-all ${
-                      sttEngine === 'webspeech'
-                        ? 'bg-[#FEE001] text-[#012915] shadow-sm'
-                        : 'text-emerald-300/70 hover:text-white'
-                    }`}
-                  >
-                    🌐 WebSpeech (0ms)
-                  </button>
-                </div>
+                <p className="font-mono text-[10px] text-emerald-300/60 tracking-widest uppercase mb-5">
+                  Voice Input
+                </p>
 
                 <div className="flex items-center gap-5 mb-5">
                   {!recording ? (
@@ -641,7 +593,7 @@ export default function VoiceRAGApp() {
                       {recording ? `Recording (${recordTime}s)` : 'Click to speak'}
                     </p>
                     <p className="font-mono text-[10px] text-emerald-300/50 mt-0.5">
-                      {sttEngine === 'groq' ? 'Groq Whisper Turbo · LPU Fast STT' : sttEngine === 'sarvam' ? 'Sarvam AI saarika:v2 · 16 kHz mono' : 'Browser On-Device WebSpeech API'}
+                      Sarvam AI STT &middot; 16 kHz mono
                     </p>
                   </div>
                   {recording && (
@@ -653,16 +605,13 @@ export default function VoiceRAGApp() {
                   )}
                 </div>
 
-                {/* ════ MARKED LOCATION: DYNAMIC STT STATUS / TIMER ════ */}
+                {/* Active Status Display (only shown when recording or transcribing) */}
                 {recording ? (
                   <div className="mb-3.5 px-3 py-2 rounded-lg bg-red-950/50 border border-red-500/40 flex items-center justify-between font-mono text-[11px] text-red-200 animate-pulse">
                     <span className="flex items-center gap-2">
                       <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
                       <span className="font-bold">RECORDING ({recordTime}s)</span>
                       <span className="text-red-300/70">· Speak your query now...</span>
-                    </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-red-900/60 border border-red-500/30 uppercase">
-                      {sttEngine}
                     </span>
                   </div>
                 ) : sttStatus ? (
@@ -671,17 +620,8 @@ export default function VoiceRAGApp() {
                       <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#FEE001]" />
                       <span>{sttStatus}</span>
                     </span>
-                    <span className="text-[10px] text-emerald-300/80 uppercase">{sttEngine}</span>
                   </div>
-                ) : (
-                  <div className="mb-3.5 px-3 py-1.5 rounded-lg bg-[#002e18]/60 border border-emerald-700/30 flex items-center justify-between font-mono text-[10px] text-emerald-300/70">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                      <span>Ready &middot; Engine: <strong className="text-emerald-200 uppercase">{sttEngine === 'groq' ? 'Whisper Turbo (~80ms)' : sttEngine === 'sarvam' ? 'Sarvam (saarika:v2)' : 'WebSpeech (0ms)'}</strong></span>
-                    </span>
-                    <span className="text-[#FEE001]/80">{sttEngine === 'groq' ? '⚡ ~80ms' : sttEngine === 'sarvam' ? '🎙️ 16kHz' : '🌐 Instant'}</span>
-                  </div>
-                )}
+                ) : null}
 
                 {/* Text input */}
                 <div className="relative">
